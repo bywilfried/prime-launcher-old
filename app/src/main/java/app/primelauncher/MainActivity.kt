@@ -53,7 +53,8 @@ fun PrimeLauncherApp(pm: PackageManager, homePressSerial: Int) {
     val prefs = remember { context.getSharedPreferences("prime_settings", Context.MODE_PRIVATE) }
     var drawerOpen by remember { mutableStateOf(false) }
     var settingsOpen by remember { mutableStateOf(false) }
-    var addToHome by remember { mutableStateOf(false) }\n    var addToDock by remember { mutableStateOf(false) }
+    var addToHome by remember { mutableStateOf(false) }
+    var addToDock by remember { mutableStateOf(false) }
     var homeAction by remember { mutableStateOf(runCatching {
         HomeButtonAction.valueOf(prefs.getString("home_button_action", HomeButtonAction.OPEN_DRAWER.name)!!)
     }.getOrDefault(HomeButtonAction.OPEN_DRAWER)) }
@@ -130,7 +131,9 @@ fun PrimeLauncherApp(pm: PackageManager, homePressSerial: Int) {
             else -> HomeScreen(workspaceKeys.mapNotNull(appMap::get), dockKeys.mapNotNull(appMap::get), columns, rows, homePages, currentHomePage, homeLabels,
                 dockEnabled, dockLabels, dockBackground, dockScale, dockIcons, dockPages, dockInfinite, ::launch,
                 remove = { saveWorkspace(workspaceKeys-it.key) }, removeDock = { saveDock(dockKeys-it.key) },
-                openDrawer={drawerOpen=true}, openSettings={settingsOpen=true}, addApp={addToHome=true}, addDock={addToDock=true},\n                setHomePage={currentHomePage=it}, reorderHome={ from,to -> if(from in workspaceKeys.indices && to in workspaceKeys.indices) { val v=workspaceKeys.toMutableList(); val x=v.removeAt(from); v.add(to,x); saveWorkspace(v) } },\n                reorderDock = { from,to -> if(from in dockKeys.indices && to in dockKeys.indices) { val v=dockKeys.toMutableList(); val x=v.removeAt(from); v.add(to,x); saveDock(v) } })
+                openDrawer={drawerOpen=true}, openSettings={settingsOpen=true}, addApp={addToHome=true}, addDock={addToDock=true},
+                setHomePage={currentHomePage=it}, reorderHome={ from,to -> if(from in workspaceKeys.indices && to in workspaceKeys.indices) { val v=workspaceKeys.toMutableList(); val x=v.removeAt(from); v.add(to,x); saveWorkspace(v) } },
+                reorderDock = { from,to -> if(from in dockKeys.indices && to in dockKeys.indices) { val v=dockKeys.toMutableList(); val x=v.removeAt(from); v.add(to,x); saveDock(v) } })
         }
     }
 }
