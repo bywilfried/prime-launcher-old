@@ -71,6 +71,8 @@ fun PrimeLauncherApp(pm: PackageManager, homePressSerial: Int) {
     var dockPages by remember { mutableIntStateOf(prefs.getInt("dock_pages", 1).coerceIn(1, 5)) }
     var dockScale by remember { mutableIntStateOf(prefs.getInt("dock_scale", 100).coerceIn(60, 140)) }
     var workspaceKeys by remember { mutableStateOf(prefs.getString("workspace_apps", "")!!.split("|").filter(String::isNotBlank)) }
+    var homePages by remember { mutableIntStateOf(prefs.getInt("home_pages", 1).coerceIn(1, 9)) }
+    var currentHomePage by remember { mutableIntStateOf(0) }
     var dockKeys by remember { mutableStateOf(prefs.getString("dock_apps", "")!!.split("|").filter(String::isNotBlank)) }
 
     val apps = remember {
@@ -102,7 +104,9 @@ fun PrimeLauncherApp(pm: PackageManager, homePressSerial: Int) {
     MaterialTheme(colorScheme = darkColorScheme()) {
         when {
             addToHome -> AppPicker(apps, "Ajouter au bureau", { addToHome = false }) {
-                if (it.key !in workspaceKeys) saveWorkspace(workspaceKeys + it.key); addToHome = false
+                val capacity = columns * rows * homePages
+                if (it.key !in workspaceKeys && workspaceKeys.size < capacity) saveWorkspace(workspaceKeys + it.key)
+                addToHome = false
             }
             addToDock -> AppPicker(apps, "Ajouter au dock", { addToDock = false }) {
                 val capacity = dockIcons * dockPages
@@ -110,11 +114,12 @@ fun PrimeLauncherApp(pm: PackageManager, homePressSerial: Int) {
                 addToDock = false
             }
             settingsOpen -> SettingsScreen(
-                apps, homeAction, selectedPackage, columns, rows, homeLabels, drawerLabels, subGrid,
+                apps, homeAction, selectedPackage, columns, rows, homePages, homeLabels, drawerLabels, subGrid,
                 dockEnabled, dockScale, dockLabels, dockBackground, dockIcons, dockPages, dockInfinite,
                 onAction = { homeAction = it; prefs.edit().putString("home_button_action", it.name).apply() },
                 onApp = { selectedPackage = it.component.packageName; prefs.edit().putString("home_button_package", selectedPackage).apply() },
                 onGrid = { c,r -> columns=c; rows=r; prefs.edit().putInt("workspace_columns",c).putInt("workspace_rows",r).apply() },
+                onHomePages = { homePages=it; currentHomePage=currentHomePage.coerceAtMost(it-1); prefs.edit().putInt("home_pages",it).apply() },
                 toggle = { key,value -> prefs.edit().putBoolean(key,value).apply()
                     when(key) { "home_labels"->homeLabels=value; "drawer_labels"->drawerLabels=value; "subgrid_positioning"->subGrid=value
                         "dock_enabled"->dockEnabled=value; "dock_labels"->dockLabels=value; "dock_background"->dockBackground=value; "dock_infinite"->dockInfinite=value } },
@@ -122,20 +127,20 @@ fun PrimeLauncherApp(pm: PackageManager, homePressSerial: Int) {
                     when(key) { "dock_scale"->dockScale=value; "dock_icons"->dockIcons=value; "dock_pages"->dockPages=value } },
                 close = { settingsOpen=false })
             drawerOpen -> AppDrawer(apps, drawerLabels, { drawerOpen=false }, ::launch)
-            else -> HomeScreen(workspaceKeys.mapNotNull(appMap::get), dockKeys.mapNotNull(appMap::get), columns, homeLabels,
+            else -> HomeScreen(workspaceKeys.mapNotNull(appMap::get), dockKeys.mapNotNull(appMap::get), columns, rows, homePages, currentHomePage, homeLabels,
                 dockEnabled, dockLabels, dockBackground, dockScale, dockIcons, dockPages, dockInfinite, ::launch,
                 remove = { saveWorkspace(workspaceKeys-it.key) }, removeDock = { saveDock(dockKeys-it.key) },
-                openDrawer={drawerOpen=true}, openSettings={settingsOpen=true}, addApp={addToHome=true}, addDock={addToDock=true},\n                reorderDock = { from,to -> if(from in dockKeys.indices && to in dockKeys.indices) { val v=dockKeys.toMutableList(); val x=v.removeAt(from); v.add(to,x); saveDock(v) } })
+                openDrawer={drawerOpen=true}, openSettings={settingsOpen=true}, addApp={addToHome=true}, addDock={addToDock=true},\n                setHomePage={currentHomePage=it}, reorderHome={ from,to -> if(from in workspaceKeys.indices && to in workspaceKeys.indices) { val v=workspaceKeys.toMutableList(); val x=v.removeAt(from); v.add(to,x); saveWorkspace(v) } },\n                reorderDock = { from,to -> if(from in dockKeys.indices && to in dockKeys.indices) { val v=dockKeys.toMutableList(); val x=v.removeAt(from); v.add(to,x); saveDock(v) } })
         }
     }
 }
 
 @Composable
 private fun HomeScreen(
-    apps: List<LaunchableApp>, dockApps: List<LaunchableApp>, columns: Int, showLabels: Boolean,
+    apps: List<LaunchableApp>, dockApps: List<LaunchableApp>, columns: Int, rows: Int, homePages: Int, homePage: Int, showLabels: Boolean,
     dockEnabled: Boolean, dockLabels: Boolean, dockBackground: Boolean, dockScale: Int,
     launch: (LaunchableApp)->Unit, remove:(LaunchableApp)->Unit, removeDock:(LaunchableApp)->Unit,
-    openDrawer:()->Unit, openSettings:()->Unit, addApp:()->Unit, addDock:()->Unit, reorderDock:(Int,Int)->Unit
+    openDrawer:()->Unit, openSettings:()->Unit, addApp:()->Unit, addDock:()->Unit, setHomePage:(Int)->Unit, reorderHome:(Int,Int)->Unit, reorderDock:(Int,Int)->Unit
 ) {
     Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(Color(0xFF050713), Color(0xFF102A70), Color(0xFF311060))))) {
         Column(Modifier.fillMaxSize().systemBarsPadding()) {
@@ -143,8 +148,23 @@ private fun HomeScreen(
                 TextButton(onClick=addApp){Text("+ Ajouter")}
                 TextButton(onClick=openSettings){Text("Réglages")}
             }
-            LazyVerticalGrid(GridCells.Fixed(columns), Modifier.weight(1f), contentPadding=PaddingValues(8.dp)) {
-                items(apps,key={it.key}) { app -> AppIcon(app,showLabels,{launch(app)},{remove(app)}) }
+            val perPage = columns * rows
+            val safeHomePage = homePage.coerceIn(0, homePages - 1)
+            val pageApps = apps.drop(safeHomePage * perPage).take(perPage)
+            Column(Modifier.weight(1f)) {
+                LazyVerticalGrid(GridCells.Fixed(columns), Modifier.weight(1f), contentPadding=PaddingValues(8.dp)) {
+                    items(pageApps,key={it.key}) { app ->
+                        val globalIndex = apps.indexOfFirst { it.key == app.key }
+                        HomeAppIcon(app,showLabels,{launch(app)},{remove(app)},
+                            moveLeft={ if(globalIndex>0) reorderHome(globalIndex,globalIndex-1) },
+                            moveRight={ if(globalIndex<apps.lastIndex) reorderHome(globalIndex,globalIndex+1) })
+                    }
+                }
+                if(homePages > 1) Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.Center,verticalAlignment=Alignment.CenterVertically) {
+                    TextButton(onClick={setHomePage((safeHomePage-1).coerceAtLeast(0))}){Text("‹")}
+                    Text("${safeHomePage+1} / $homePages",style=MaterialTheme.typography.labelMedium)
+                    TextButton(onClick={setHomePage((safeHomePage+1).coerceAtMost(homePages-1))}){Text("›")}
+                }
             }
             if (dockEnabled) {
                 Surface(Modifier.fillMaxWidth().padding(12.dp), shape=RoundedCornerShape(28.dp),
@@ -189,10 +209,10 @@ private fun AppIcon(app:LaunchableApp, showLabel:Boolean, onClick:()->Unit, remo
 
 @Composable
 private fun SettingsScreen(
-    apps:List<LaunchableApp>, action:HomeButtonAction, selectedPackage:String?, columns:Int, rows:Int,
+    apps:List<LaunchableApp>, action:HomeButtonAction, selectedPackage:String?, columns:Int, rows:Int, homePages:Int,
     homeLabels:Boolean, drawerLabels:Boolean, subGrid:Boolean, dockEnabled:Boolean, dockScale:Int, dockLabels:Boolean,
     dockBackground:Boolean, dockIcons:Int, dockPages:Int, dockInfinite:Boolean,
-    onAction:(HomeButtonAction)->Unit, onApp:(LaunchableApp)->Unit, onGrid:(Int,Int)->Unit,
+    onAction:(HomeButtonAction)->Unit, onApp:(LaunchableApp)->Unit, onGrid:(Int,Int)->Unit, onHomePages:(Int)->Unit,
     toggle:(String,Boolean)->Unit, setInt:(String,Int)->Unit, close:()->Unit
 ) {
     var chooseApp by remember { mutableStateOf(false) }
@@ -203,6 +223,7 @@ private fun SettingsScreen(
         Text("Grille : $columns × $rows")
         Row { TextButton({onGrid((columns-1).coerceAtLeast(3),rows)}){Text("− Colonnes")}; TextButton({onGrid((columns+1).coerceAtMost(16),rows)}){Text("+ Colonnes")} }
         Row { TextButton({onGrid(columns,(rows-1).coerceAtLeast(4))}){Text("− Lignes")}; TextButton({onGrid(columns,(rows+1).coerceAtMost(20))}){Text("+ Lignes")} }
+        IntSetting("Pages d'accueil","$homePages",homePages,1,9,1,onHomePages)
         SettingSwitch("Noms des applications sur le bureau",homeLabels){toggle("home_labels",it)}
         SettingSwitch("Placement entre les cases",subGrid){toggle("subgrid_positioning",it)}
         Text("Fond Prime par défaut actif. Le sélecteur de fond personnalisé arrive avec le moteur de widgets.",style=MaterialTheme.typography.bodySmall)
