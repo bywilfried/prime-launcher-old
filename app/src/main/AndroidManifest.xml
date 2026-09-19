@@ -5,13 +5,35 @@
             <category android:name="android.intent.category.LAUNCHER" />
         </intent>
     </queries>
-    <application android:theme="@style/Theme.PrimeLauncher" android:label="Prime Launcher" android:allowBackup="true">
-        <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTask" android:screenOrientation="unspecified">
+
+    <application
+        android:theme="@style/Theme.PrimeLauncher"
+        android:label="Prime Launcher"
+        android:allowBackup="true">
+
+        <!-- The real Android HOME entry point. -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:screenOrientation="unspecified">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.HOME" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
+
+        <!-- Separate front-door entry so Prime Launcher is also visible in every app drawer. -->
+        <activity-alias
+            android:name=".LauncherEntry"
+            android:targetActivity=".MainActivity"
+            android:exported="true"
+            android:label="Prime Launcher">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
     </application>
 </manifest>
