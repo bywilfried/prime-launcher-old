@@ -53,7 +53,7 @@ fun PrimeLauncherApp(pm: PackageManager, homePressSerial: Int) {
     val prefs = remember { context.getSharedPreferences("prime_settings", Context.MODE_PRIVATE) }
     var drawerOpen by remember { mutableStateOf(false) }
     var settingsOpen by remember { mutableStateOf(false) }
-    var addToHome by remember { mutableStateOf(false) }
+    var addToHome by remember { mutableStateOf(false) }\n    var addToDock by remember { mutableStateOf(false) }
     var homeAction by remember { mutableStateOf(runCatching {
         HomeButtonAction.valueOf(prefs.getString("home_button_action", HomeButtonAction.OPEN_DRAWER.name)!!)
     }.getOrDefault(HomeButtonAction.OPEN_DRAWER)) }
@@ -90,7 +90,7 @@ fun PrimeLauncherApp(pm: PackageManager, homePressSerial: Int) {
 
     LaunchedEffect(homePressSerial) {
         if (homePressSerial == 0) return@LaunchedEffect
-        if (drawerOpen || settingsOpen || addToHome) { drawerOpen = false; settingsOpen = false; addToHome = false }
+        if (drawerOpen || settingsOpen || addToHome || addToDock) { drawerOpen = false; settingsOpen = false; addToHome = false; addToDock = false }
         else when (homeAction) {
             HomeButtonAction.NONE -> Unit
             HomeButtonAction.OPEN_DRAWER -> drawerOpen = true
@@ -103,6 +103,11 @@ fun PrimeLauncherApp(pm: PackageManager, homePressSerial: Int) {
         when {
             addToHome -> AppPicker(apps, "Ajouter au bureau", { addToHome = false }) {
                 if (it.key !in workspaceKeys) saveWorkspace(workspaceKeys + it.key); addToHome = false
+            }
+            addToDock -> AppPicker(apps, "Ajouter au dock", { addToDock = false }) {
+                val capacity = dockIcons * dockPages
+                if (it.key !in dockKeys && dockKeys.size < capacity) saveDock(dockKeys + it.key)
+                addToDock = false
             }
             settingsOpen -> SettingsScreen(
                 apps, homeAction, selectedPackage, columns, rows, homeLabels, drawerLabels, subGrid,
@@ -118,9 +123,9 @@ fun PrimeLauncherApp(pm: PackageManager, homePressSerial: Int) {
                 close = { settingsOpen=false })
             drawerOpen -> AppDrawer(apps, drawerLabels, { drawerOpen=false }, ::launch)
             else -> HomeScreen(workspaceKeys.mapNotNull(appMap::get), dockKeys.mapNotNull(appMap::get), columns, homeLabels,
-                dockEnabled, dockLabels, dockBackground, dockScale, ::launch,
+                dockEnabled, dockLabels, dockBackground, dockScale, dockIcons, dockPages, dockInfinite, ::launch,
                 remove = { saveWorkspace(workspaceKeys-it.key) }, removeDock = { saveDock(dockKeys-it.key) },
-                openDrawer={drawerOpen=true}, openSettings={settingsOpen=true}, addApp={addToHome=true})
+                openDrawer={drawerOpen=true}, openSettings={settingsOpen=true}, addApp={addToHome=true}, addDock={addToDock=true},\n                reorderDock = { from,to -> if(from in dockKeys.indices && to in dockKeys.indices) { val v=dockKeys.toMutableList(); val x=v.removeAt(from); v.add(to,x); saveDock(v) } })
         }
     }
 }
@@ -130,7 +135,7 @@ private fun HomeScreen(
     apps: List<LaunchableApp>, dockApps: List<LaunchableApp>, columns: Int, showLabels: Boolean,
     dockEnabled: Boolean, dockLabels: Boolean, dockBackground: Boolean, dockScale: Int,
     launch: (LaunchableApp)->Unit, remove:(LaunchableApp)->Unit, removeDock:(LaunchableApp)->Unit,
-    openDrawer:()->Unit, openSettings:()->Unit, addApp:()->Unit
+    openDrawer:()->Unit, openSettings:()->Unit, addApp:()->Unit, addDock:()->Unit, reorderDock:(Int,Int)->Unit
 ) {
     Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(Color(0xFF050713), Color(0xFF102A70), Color(0xFF311060))))) {
         Column(Modifier.fillMaxSize().systemBarsPadding()) {
@@ -144,9 +149,24 @@ private fun HomeScreen(
             if (dockEnabled) {
                 Surface(Modifier.fillMaxWidth().padding(12.dp), shape=RoundedCornerShape(28.dp),
                     color=if(dockBackground) MaterialTheme.colorScheme.surfaceVariant.copy(alpha=.70f) else Color.Transparent) {
-                    Row(Modifier.fillMaxWidth().padding(8.dp), horizontalArrangement=Arrangement.SpaceEvenly, verticalAlignment=Alignment.CenterVertically) {
-                        dockApps.forEach { AppIcon(it,dockLabels,{launch(it)},{removeDock(it)},(52*dockScale/100).dp) }
-                        FilledTonalButton(onClick=openDrawer){Text("Applications")}
+                    var dockPage by remember { mutableIntStateOf(0) }
+                    val pageCount = dockPages.coerceAtLeast(1)
+                    val safePage = dockPage.coerceIn(0, pageCount - 1)
+                    val pageApps = dockApps.drop(safePage * dockIcons).take(dockIcons)
+                    Column(Modifier.fillMaxWidth().padding(8.dp)) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement=Arrangement.SpaceEvenly, verticalAlignment=Alignment.CenterVertically) {
+                            if (pageCount > 1) TextButton(onClick={ dockPage = if(safePage == 0) { if(dockInfinite) pageCount-1 else 0 } else safePage-1 }) { Text("‹") }
+                            pageApps.forEachIndexed { localIndex, app ->
+                                val globalIndex = safePage * dockIcons + localIndex
+                                DockIcon(app,dockLabels,{launch(app)},{removeDock(app)},(52*dockScale/100).dp,
+                                    moveLeft={ if(globalIndex>0) reorderDock(globalIndex,globalIndex-1) },
+                                    moveRight={ if(globalIndex<dockApps.lastIndex) reorderDock(globalIndex,globalIndex+1) })
+                            }
+                            if(pageApps.size < dockIcons) TextButton(onClick=addDock){Text("+")}
+                            FilledTonalButton(onClick=openDrawer){Text("Apps")}
+                            if (pageCount > 1) TextButton(onClick={ dockPage = if(safePage == pageCount-1) { if(dockInfinite) 0 else safePage } else safePage+1 }) { Text("›") }
+                        }
+                        if(pageCount > 1) Text("${safePage+1} / $pageCount", Modifier.align(Alignment.CenterHorizontally), style=MaterialTheme.typography.labelSmall)
                     }
                 }
             } else FilledTonalButton(onClick=openDrawer, Modifier.align(Alignment.CenterHorizontally).padding(12.dp)){Text("Applications")}
