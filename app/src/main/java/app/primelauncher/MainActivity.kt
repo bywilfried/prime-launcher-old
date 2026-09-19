@@ -60,8 +60,8 @@ fun PrimeLauncherApp(pm: PackageManager, homePressSerial: Int) {
             .getOrDefault(HomeButtonAction.OPEN_DRAWER))
     }
     var selectedPackage by remember { mutableStateOf(prefs.getString("home_button_package", null)) }
-    var columns by remember { mutableIntStateOf(prefs.getInt("workspace_columns", 5).coerceIn(3, 8)) }
-    var rows by remember { mutableIntStateOf(prefs.getInt("workspace_rows", 6).coerceIn(4, 10)) }
+    var columns by remember { mutableIntStateOf(prefs.getInt("workspace_columns", 5).coerceIn(3, 16)) }
+    var rows by remember { mutableIntStateOf(prefs.getInt("workspace_rows", 6).coerceIn(4, 20)) }\n    var homeLabels by remember { mutableStateOf(prefs.getBoolean("home_labels", false)) }\n    var drawerLabels by remember { mutableStateOf(prefs.getBoolean("drawer_labels", true)) }\n    var subGridPositioning by remember { mutableStateOf(prefs.getBoolean("subgrid_positioning", false)) }
     var workspaceKeys by remember {
         mutableStateOf(prefs.getString("workspace_apps", "")!!.split("|").filter { it.isNotBlank() })
     }
@@ -105,13 +105,13 @@ fun PrimeLauncherApp(pm: PackageManager, homePressSerial: Int) {
                     if (app.key !in workspaceKeys && workspaceKeys.size < columns * rows) persistWorkspace(workspaceKeys + app.key)
                     addToHome = false
                 }
-                settingsOpen -> SettingsScreen(apps, homeAction, selectedPackage, columns, rows,
+                settingsOpen -> SettingsScreen(apps, homeAction, selectedPackage, columns, rows, homeLabels, drawerLabels, subGridPositioning,
                     onAction = { homeAction = it; prefs.edit().putString("home_button_action", it.name).apply() },
                     onApp = { selectedPackage = it.component.packageName; prefs.edit().putString("home_button_package", selectedPackage).apply() },
-                    onGrid = { c, r -> columns = c; rows = r; prefs.edit().putInt("workspace_columns", c).putInt("workspace_rows", r).apply() },
+                    onGrid = { c, r -> columns = c; rows = r; prefs.edit().putInt("workspace_columns", c).putInt("workspace_rows", r).apply() },\n                    onHomeLabels = { homeLabels = it; prefs.edit().putBoolean("home_labels", it).apply() },\n                    onDrawerLabels = { drawerLabels = it; prefs.edit().putBoolean("drawer_labels", it).apply() },\n                    onSubGrid = { subGridPositioning = it; prefs.edit().putBoolean("subgrid_positioning", it).apply() },
                     close = { settingsOpen = false })
-                drawerOpen -> AppDrawer(apps, { drawerOpen = false }, ::launch)
-                else -> HomeScreen(workspaceApps, columns, ::launch,
+                drawerOpen -> AppDrawer(apps, drawerLabels, { drawerOpen = false }, ::launch)
+                else -> HomeScreen(workspaceApps, columns, homeLabels, ::launch,
                     remove = { persistWorkspace(workspaceKeys - it.key) },
                     openDrawer = { drawerOpen = true }, openSettings = { settingsOpen = true }, addApp = { addToHome = true })
             }
@@ -121,7 +121,7 @@ fun PrimeLauncherApp(pm: PackageManager, homePressSerial: Int) {
 
 @Composable
 private fun HomeScreen(
-    apps: List<LaunchableApp>, columns: Int, launch: (LaunchableApp) -> Unit, remove: (LaunchableApp) -> Unit,
+    apps: List<LaunchableApp>, columns: Int, showLabels: Boolean, launch: (LaunchableApp) -> Unit, remove: (LaunchableApp) -> Unit,
     openDrawer: () -> Unit, openSettings: () -> Unit, addApp: () -> Unit
 ) {
     Column(Modifier.fillMaxSize().systemBarsPadding()) {
@@ -134,7 +134,7 @@ private fun HomeScreen(
             contentPadding = PaddingValues(8.dp)
         ) {
             items(apps, key = { it.key }) { app ->
-                AppIcon(app, onClick = { launch(app) }, onLongClickFallback = { remove(app) })
+                AppIcon(app, showLabels, onClick = { launch(app) }, onLongClickFallback = { remove(app) })
             }
         }
         Surface(
@@ -149,7 +149,7 @@ private fun HomeScreen(
 }
 
 @Composable
-private fun AppIcon(app: LaunchableApp, onClick: () -> Unit, onLongClickFallback: () -> Unit) {
+private fun AppIcon(app: LaunchableApp, showLabel: Boolean, onClick: () -> Unit, onLongClickFallback: () -> Unit) {
     var menu by remember { mutableStateOf(false) }
     Box {
         Column(
@@ -169,7 +169,7 @@ private fun AppIcon(app: LaunchableApp, onClick: () -> Unit, onLongClickFallback
 @Composable
 private fun SettingsScreen(
     apps: List<LaunchableApp>, action: HomeButtonAction, selectedPackage: String?, columns: Int, rows: Int,
-    onAction: (HomeButtonAction) -> Unit, onApp: (LaunchableApp) -> Unit, onGrid: (Int, Int) -> Unit, close: () -> Unit
+    onAction: (HomeButtonAction) -> Unit, onApp: (LaunchableApp) -> Unit, onGrid: (Int, Int) -> Unit,\n    onHomeLabels: (Boolean) -> Unit, onDrawerLabels: (Boolean) -> Unit, onSubGrid: (Boolean) -> Unit, close: () -> Unit
 ) {
     var chooseApp by remember { mutableStateOf(false) }
     if (chooseApp) {
@@ -185,11 +185,11 @@ private fun SettingsScreen(
         Text("Grille : $columns × $rows")
         Row {
             TextButton(onClick = { onGrid((columns - 1).coerceAtLeast(3), rows) }) { Text("− Colonnes") }
-            TextButton(onClick = { onGrid((columns + 1).coerceAtMost(8), rows) }) { Text("+ Colonnes") }
+            TextButton(onClick = { onGrid((columns + 1).coerceAtMost(16), rows) }) { Text("+ Colonnes") }
         }
         Row {
             TextButton(onClick = { onGrid(columns, (rows - 1).coerceAtLeast(4)) }) { Text("− Lignes") }
-            TextButton(onClick = { onGrid(columns, (rows + 1).coerceAtMost(10)) }) { Text("+ Lignes") }
+            TextButton(onClick = { onGrid(columns, (rows + 1).coerceAtMost(20)) }) { Text("+ Lignes") }
         }
         HorizontalDivider(Modifier.padding(vertical = 12.dp))
         Text("Touche Home", style = MaterialTheme.typography.titleMedium)
@@ -204,6 +204,15 @@ private fun SettingsScreen(
             val name = apps.firstOrNull { it.component.packageName == selectedPackage }?.label ?: "Choisir une application"
             Button(onClick = { chooseApp = true }) { Text(name) }
         }
+    }
+}
+
+@Composable
+@Composable
+private fun SettingSwitch(label: String, checked: Boolean, change: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth().clickable { change(!checked) }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, Modifier.weight(1f))
+        Switch(checked = checked, onCheckedChange = change)
     }
 }
 
@@ -226,7 +235,7 @@ private fun AppPicker(apps: List<LaunchableApp>, title: String, close: () -> Uni
 }
 
 @Composable
-private fun AppDrawer(apps: List<LaunchableApp>, close: () -> Unit, launch: (LaunchableApp) -> Unit) {
+private fun AppDrawer(apps: List<LaunchableApp>, showLabels: Boolean, close: () -> Unit, launch: (LaunchableApp) -> Unit) {
     var search by remember { mutableStateOf("") }
     val filtered = remember(apps, search) { if (search.isBlank()) apps else apps.filter { it.label.contains(search, true) } }
     Column(Modifier.fillMaxSize().systemBarsPadding()) {
